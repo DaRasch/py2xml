@@ -50,8 +50,10 @@ import collections
 
 try:
     import lxml.etree as etree
+    has_lxml = True
 except ImportError:
     import xml.etree.ElementTree as etree
+    has_lxml = False
 
 __version__ = '0.1.0'
 
@@ -93,9 +95,12 @@ class ElementFactory(object):
             attrib = {key: str(val) for key, val in attrib.items()}
         if extra:
             extra = {key: str(val) for key, val in extra.items()}
-        self.element = etree.Element(self._tag, attrib, nsmap, **extra)
+        if nsmap is not None:
+            self.element = etree.Element(self._tag, attrib or {}, nsmap, **extra)
+        else:
+            self.element = etree.Element(self._tag, attrib or {}, **extra)
         if text:
-            self.element.text = text
+            self.element.text = str(text)
         self._context.add(self.element)
         return self
 
@@ -174,13 +179,24 @@ class DocumentMeta(type):
     def __prepare__(mcls, name: 'str', bases: 'Sequence[type]', whitelist=None, blacklist=None, ctx=None):
         return ElementMap(ctx or CTX, whitelist, blacklist)
 
-    def __call__(cls, *, doctype: 'str'=None, encoding='utf-8', declaration=None, pretty=False):
+    def __call__(cls, *, doctype: 'str'=None, encoding: 'str'='utf-8', declaration: 'bool'=False, pretty: 'bool'=False):
         if 'root' not in cls.__dict__:
             raise AttributeError('document must have root')
         if doctype is not None:
             doctype = f'<!DOCTYPE {doctype}>'
-        return etree.tostring(cls.root, doctype=doctype, encoding=encoding,
-            xml_declaration=declaration, pretty_print=pretty)
+        else:
+            doctype = ''
+        if declaration:
+            declaration = f'<?xml version="1.0" encoding="{encoding}"?>'
+        else:
+            declaration = ''
+        if has_lxml:
+            xml = etree.tostring(cls.root, encoding=encoding, pretty_print=pretty)
+        else:
+            xml = etree.tostring(cls.root, encoding=encoding)
+        if isinstance(xml, bytes):
+            xml = xml.decode(encoding)
+        return '\n'.join([declaration, doctype, xml]).lstrip()
 
 
 class Document(metaclass=DocumentMeta):
